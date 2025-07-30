@@ -1,5 +1,3 @@
-# Metadata-Extractor
-
 # Metadata Extractor & Anomaly Detector
 This is a web-based prototype designed for auditors and investigators to quickly analyze file metadata for potential signs of fraud or manipulation.
 
