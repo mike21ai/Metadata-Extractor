@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Prototipe Metadata Extractor</title>
+    
+    <!-- Styling with Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Libraries for analysis -->
+    <!-- pdf.js for PDF analysis -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script>pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;</script>
+    <!-- exif-reader for Image analysis -->
+    <script src="https://cdn.jsdelivr.net/npm/exif-reader@2.0.0/dist/exif-reader.min.js"></script>
+    <!-- jszip for handling .zip files -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
+    <!-- Font -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    
+    <style>
+        body { 
+            font-family: 'Inter', sans-serif; 
+            scroll-behavior: smooth;
+        }
+        .drop-zone {
+            border: 2px dashed #d1d5db;
+            transition: border-color 0.2s, background-color 0.2s;
+        }
+        .drop-zone--over {
+            border-color: #2563eb;
+            background-color: #eff6ff;
+        }
+        .report-card, .summary-card {
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+        }
+        .loader {
+            border: 4px solid #f3f4f6;
+            border-top: 4px solid #3b82f6;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800 antialiased">
+    <!-- Main Container -->
+    <div class="container mx-auto p-4 md:p-8 max-w-5xl">
+        <!-- Header -->
+        <header class="text-center mb-8">
+            <h1 class="text-3xl md:text-4xl font-bold text-gray-900">Metadata Extractor & Anomaly Detector</h1>
+            <p class="text-md text-gray-600 mt-2">Unggah file PDF, JPG, PNG (tunggal atau dalam .ZIP) untuk analisis potensi fraud.</p>
+        </header>
+
+        <!-- Summary Area -->
+        <div id="summary-area" class="hidden mb-8">
+            <!-- Summary will be injected here -->
+        </div>
+
+        <!-- Separator -->
+        <div id="separator" class="hidden my-8">
+            <div class="relative">
+                <div class="absolute inset-0 flex items-center" aria-hidden="true">
+                    <div class="w-full border-t border-gray-300"></div>
+                </div>
+                <div class="relative flex justify-center">
+                    <span class="bg-gray-50 px-3 text-lg font-medium text-gray-900">Detail Laporan</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Upload Area -->
+        <div id="upload-container">
+            <div id="drop-zone" class="relative flex flex-col items-center justify-center w-full p-10 bg-white rounded-lg drop-zone">
+                <svg class="w-12 h-12 text-gray-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 16.5V9.75m0 0l-3 3m3-3l3-3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z" />
+                </svg>
+                <p class="mt-4 text-gray-600">Tarik & Lepas file di sini, atau</p>
+                <label for="file-input" class="mt-4 px-6 py-2 bg-blue-600 text-white font-semibold rounded-md cursor-pointer hover:bg-blue-700 transition">
+                    Pilih File
+                </label>
+                <input type="file" id="file-input" class="hidden" multiple>
+            </div>
+        </div>
+
+        <!-- Loading Indicator -->
+        <div id="loading-indicator" class="hidden flex flex-col items-center justify-center my-10">
+            <div class="loader"></div>
+            <p class="mt-4 text-gray-600">Menganalisis file, mohon tunggu...</p>
+        </div>
+
+        <!-- Results Area -->
+        <div id="results-area" class="space-y-6">
+            <!-- Reports will be injected here by JavaScript -->
+        </div>
+
+        <!-- Actions Area -->
+        <div id="actions-area" class="hidden text-center mt-10 space-y-2 md:space-y-0 md:space-x-4">
+            <button id="download-btn" class="px-6 py-2 bg-green-600 text-white font-semibold rounded-md hover:bg-green-700 transition w-full md:w-auto">Unduh Laporan</button>
+            <button id="add-file-btn" class="px-6 py-2 bg-blue-600 text-white font-semibold rounded-md hover:bg-blue-700 transition w-full md:w-auto">Tambah File</button>
+            <button id="reset-btn" class="px-6 py-2 bg-gray-600 text-white font-semibold rounded-md hover:bg-gray-700 transition w-full md:w-auto">Analisis Ulang</button>
+        </div>
+    </div>
+
+    <!-- JavaScript Logic -->
+    <script>
+        const dropZone = document.getElementById('drop-zone');
+        const fileInput = document.getElementById('file-input');
+        const uploadContainer = document.getElementById('upload-container');
+        const loadingIndicator = document.getElementById('loading-indicator');
+        const summaryArea = document.getElementById('summary-area');
+        const separator = document.getElementById('separator');
+        const resultsArea = document.getElementById('results-area');
+        const actionsArea = document.getElementById('actions-area');
+        const downloadBtn = document.getElementById('download-btn');
+        const addFileBtn = document.getElementById('add-file-btn');
+        const resetBtn = document.getElementById('reset-btn');
+
+        let fullReportContent = [];
+        let riskSummaryData = [];
+
+        // --- Event Listeners ---
+        dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drop-zone--over'); });
+        ['dragleave', 'dragend'].forEach(type => dropZone.addEventListener(type, e => dropZone.classList.remove('drop-zone--over')));
+        dropZone.addEventListener('drop', e => {
+            e.preventDefault();
+            dropZone.classList.remove('drop-zone--over');
+            if (e.dataTransfer.files.length) { handleFiles(e.dataTransfer.files, 'new'); }
+        });
+        fileInput.addEventListener('change', () => handleFiles(fileInput.files, 'new'));
+        addFileBtn.addEventListener('click', () => {
+            const tempInput = document.createElement('input');
+            tempInput.type = 'file';
+            tempInput.multiple = true;
+            tempInput.onchange = () => handleFiles(tempInput.files, 'add');
+            tempInput.click();
+        });
+        downloadBtn.addEventListener('click', downloadReport);
+        resetBtn.addEventListener('click', resetApp);
+
+        function resetApp() {
+            resultsArea.innerHTML = '';
+            summaryArea.innerHTML = '';
+            summaryArea.classList.add('hidden');
+            separator.classList.add('hidden');
+            actionsArea.classList.add('hidden');
+            uploadContainer.classList.remove('hidden');
+            fullReportContent = [];
+            riskSummaryData = [];
+            fileInput.value = '';
+        }
+
+        async function handleFiles(files, mode) {
+            if (files.length === 0) return;
+            
+            if (mode === 'new') {
+                resetApp();
+            }
+
+            uploadContainer.classList.add('hidden');
+            loadingIndicator.classList.remove('hidden');
+            actionsArea.classList.add('hidden');
+            
+            for (const file of Array.from(files)) {
+                if (file.name.toLowerCase().endsWith('.zip')) await handleZipFile(file);
+                else await handleSingleFile(file);
+            }
+            
+            loadingIndicator.classList.add('hidden');
+            if (fullReportContent.length > 0) {
+                displaySummary();
+                separator.classList.remove('hidden');
+                actionsArea.classList.remove('hidden');
+            } else if (mode === 'new') {
+                resetApp();
+            }
+        }
+
+        async function handleZipFile(zipFile) {
+            const zip = await JSZip.loadAsync(zipFile);
+            const supportedExtensions = ['.pdf', '.jpg', '.jpeg', '.png'];
+            for (const filename in zip.files) {
+                if (!zip.files[filename].dir && supportedExtensions.some(ext => filename.toLowerCase().endsWith(ext))) {
+                    const fileData = await zip.files[filename].async('blob');
+                    const file = new File([fileData], filename, { type: fileData.type });
+                    await handleSingleFile(file);
+                }
+            }
+        }
+
+        async function handleSingleFile(file) {
+            const fileExt = `.${file.name.split('.').pop().toLowerCase()}`;
+            let report = '';
+            try {
+                if (fileExt === '.pdf') report = await analyzePdf(file);
+                else if (['.jpg', '.jpeg', '.png'].includes(fileExt)) report = await analyzeImage(file);
+                
+                if (report) {
+                    resultsArea.insertAdjacentHTML('beforeend', report.html);
+                    fullReportContent.push(report.text);
+                    riskSummaryData.push({ filename: file.name, ...report.risk });
+                }
+            } catch (error) {
+                const errorHtml = createReportCard(file.name, `<p class="text-red-500">Gagal memproses file: ${error.message}</p>`);
+                resultsArea.insertAdjacentHTML('beforeend', errorHtml);
+            }
+        }
+
+        async function analyzePdf(file) {
+            const arrayBuffer = await file.arrayBuffer();
+            const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+            const metadataRaw = await pdf.getMetadata();
+            const info = metadataRaw.info;
+            const createdDate = info.CreationDate ? parsePdfDate(info.CreationDate) : null;
+            const modifiedDate = info.ModDate ? parsePdfDate(info.ModDate) : null;
+            const metadata = {
+                "Nama File": file.name, "Ukuran File": formatBytes(file.size), "Judul": info.Title || 'N/A',
+                "Penulis (Author)": info.Author || 'N/A', "Aplikasi Pembuat (Creator)": info.Creator || 'N/A',
+                "Produser PDF (Producer)": info.Producer || 'N/A', "Versi PDF": info.PDFFormatVersion || 'N/A',
+                "Jumlah Halaman": pdf.numPages, "Tanggal Dibuat": createdDate ? createdDate.toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' }) : 'N/A',
+                "Tanggal Dimodifikasi": modifiedDate ? modifiedDate.toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' }) : 'N/A',
+            };
+            const riskResult = assessPdfRisk(metadata, createdDate, modifiedDate);
+            const reportText = generateTextReport("PDF", [ { title: "Info Dasar & Metadata", data: metadata } ], riskResult.text, riskResult.level);
+            const reportHtml = createReportCard(file.name, generateHtmlReport([ { title: "Info Dasar & Metadata", data: metadata } ], riskResult.text, riskResult.level));
+            return { html: reportHtml, text: reportText, risk: riskResult };
+        }
+
+        async function analyzeImage(file) {
+            const arrayBuffer = await file.arrayBuffer();
+            const dimensions = await new Promise((resolve, reject) => {
+                const img = new Image();
+                const url = URL.createObjectURL(file);
+                img.onload = () => { resolve({ width: img.width, height: img.height }); URL.revokeObjectURL(url); };
+                img.onerror = () => { reject(new Error("Gagal memuat gambar.")); URL.revokeObjectURL(url); };
+                img.src = url;
+            });
+
+            const basicInfo = { "Nama File": file.name, "Ukuran File": formatBytes(file.size), "Dimensi": `${dimensions.width} x ${dimensions.height} piksel` };
+            let reportSections = [{ title: "Info Dasar", data: basicInfo }];
+            let riskResult;
+
+            try {
+                const exifData = ExifReader.load(arrayBuffer, { expanded: true });
+                const { image, exif, gps } = exifData;
+                
+                if (image && Object.keys(image).length > 0) reportSections.push({ title: "Info Gambar (IFD0)", data: formatExifSection(image) });
+                if (exif && Object.keys(exif).length > 0) reportSections.push({ title: "Info Kamera & EXIF (SubIFD)", data: formatExifSection(exif) });
+                if (gps && Object.keys(gps).length > 0) reportSections.push({ title: "Info Lokasi (GPS)", data: formatExifSection(gps) });
+                
+                riskResult = assessImageRisk(exifData);
+            } catch (error) {
+                // This handles files with no EXIF structure at all
+                riskResult = { level: 'Sedang', reason: 'Tidak ada metadata EXIF.', text: `RISIKO SEDANG: File ${file.type.toUpperCase()} ini tidak mengandung segmen metadata EXIF. Data ini mungkin telah sengaja dihapus atau tidak didukung oleh format file ini.` };
+            }
+
+            const reportText = generateTextReport("Gambar", reportSections, riskResult.text, riskResult.level);
+            const reportHtml = createReportCard(file.name, generateHtmlReport(reportSections, riskResult.text, riskResult.level));
+            return { html: reportHtml, text: reportText, risk: riskResult };
+        }
+        
+        function formatExifSection(section) {
+            const formatted = {};
+            for (const key in section) {
+                if (section[key] && typeof section[key] === 'object' && section[key].description) {
+                    formatted[key] = section[key].description;
+                }
+            }
+            return formatted;
+        }
+
+        // --- Risk Assessment Logic ---
+        function assessPdfRisk(metadata, createdDate, modifiedDate) {
+            let risks = [];
+            const creator = (metadata["Aplikasi Pembuat (Creator)"] || '').toLowerCase();
+            const producer = (metadata["Produser PDF (Producer)"] || '').toLowerCase();
+            if (['photoshop', 'illustrator', 'gimp', 'canva'].some(sw => producer.includes(sw) || creator.includes(sw))) {
+                risks.push({level: 'Tinggi', reason: 'Dibuat oleh software editing gambar.'});
+            } else if (['word', 'excel', 'powerpoint'].some(sw => creator.includes(sw))) {
+                risks.push({level: 'Sedang', reason: 'Dibuat oleh aplikasi office.'});
+            }
+            if (createdDate && modifiedDate && Math.abs((modifiedDate - createdDate) / 1000) > 300) {
+                risks.push({level: 'Sedang', reason: 'Perbedaan waktu modifikasi signifikan.'});
+            }
+            if (metadata["Penulis (Author)"] === 'N/A') risks.push({level: 'Rendah', reason: "Metadata 'Penulis' tidak diisi."});
+            
+            if (risks.length === 0) return { level: 'Rendah', reason: 'Tidak ada anomali terdeteksi.', text: '✅ Tidak ada indikator risiko signifikan yang terdeteksi.' };
+
+            const topRisk = risks.sort((a, b) => (['Tinggi', 'Sedang', 'Rendah'].indexOf(a.level) - ['Tinggi', 'Sedang', 'Rendah'].indexOf(b.level)))[0];
+            const fullText = risks.map(r => `🚩 RISIKO ${r.level.toUpperCase()}: ${r.reason}`).join('\n');
+            return { level: topRisk.level, reason: topRisk.reason, text: fullText };
+        }
+
+        function assessImageRisk(exifData) {
+            let risks = [];
+            if (exifData.gps && Object.keys(exifData.gps).length > 0) {
+                risks.push({level: 'Tinggi', reason: 'Data lokasi (GPS) ditemukan.'});
+            }
+            if (exifData.exif?.Software) {
+                risks.push({level: 'Tinggi', reason: `Dimodifikasi oleh '${exifData.exif.Software.description}'.`});
+            } else {
+                 risks.push({level: 'Info', reason: "Tidak ada tag 'Software' eksplisit."});
+            }
+            if (!exifData.exif?.DateTimeOriginal) {
+                risks.push({level: 'Sedang', reason: "Tidak ada data 'Tanggal Asli'."});
+            }
+            
+            if (risks.length === 0) return { level: 'Rendah', reason: 'Tidak ada anomali terdeteksi.', text: '✅ Tidak ada indikator risiko signifikan yang terdeteksi.' };
+
+            const topRisk = risks.sort((a, b) => (['Tinggi', 'Sedang', 'Rendah', 'Info'].indexOf(a.level) - ['Tinggi', 'Sedang', 'Rendah', 'Info'].indexOf(b.level)))[0];
+            const fullText = risks.map(r => `🚩 RISIKO ${r.level.toUpperCase()}: ${r.reason}`).join('\n');
+            return { level: topRisk.level, reason: topRisk.reason, text: fullText };
+        }
+
+        // --- UI & Report Generation ---
+        function displaySummary() {
+            const riskOrder = { 'Tinggi': 1, 'Sedang': 2, 'Rendah': 3, 'Info': 4 };
+            const riskColors = { 'Tinggi': 'bg-red-100 text-red-800', 'Sedang': 'bg-yellow-100 text-yellow-800', 'Rendah': 'bg-green-100 text-green-800', 'Info': 'bg-blue-100 text-blue-800' };
+
+            riskSummaryData.sort((a, b) => riskOrder[a.level] - riskOrder[b.level]);
+
+            let summaryHtml = `<div class="bg-white rounded-lg p-6 summary-card">
+                <h3 class="text-xl font-bold text-gray-900 border-b pb-3 mb-4">Ringkasan Perhatian Auditor</h3>
+                <ul class="space-y-2">`;
+            
+            riskSummaryData.forEach(item => {
+                summaryHtml += `
+                    <li class="flex items-center justify-between p-2 rounded-md hover:bg-gray-50">
+                        <span class="font-medium text-gray-700 truncate pr-4" title="${item.filename}">${item.filename}</span>
+                        <div class="flex items-center flex-shrink-0">
+                            <span class="text-sm text-gray-500 mr-3 text-right">${item.reason}</span>
+                            <span class="text-xs font-semibold px-2 py-1 rounded-full ${riskColors[item.level]}">${item.level}</span>
+                        </div>
+                    </li>`;
+            });
+
+            summaryHtml += '</ul></div>';
+            summaryArea.innerHTML = summaryHtml;
+            summaryArea.classList.remove('hidden');
+        }
+
+        function createReportCard(filename, content) {
+            return `<div class="bg-white rounded-lg p-6 report-card"><h3 class="text-lg font-semibold text-gray-900 border-b pb-3 mb-4 flex items-center"><svg class="w-6 h-6 mr-3 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg>${filename}</h3><div class="text-sm">${content}</div></div>`;
+        }
+
+        function generateHtmlReport(sections, riskText, riskLevel) {
+            const riskColors = { 'Tinggi': 'border-red-500', 'Sedang': 'border-yellow-500', 'Rendah': 'border-green-500', 'Info': 'border-blue-500' };
+            let html = sections.map(section => {
+                if (Object.keys(section.data).length === 0) return '';
+                let sectionHtml = `<div class="mb-4"><h4 class="font-semibold text-gray-700 mb-2">${section.title}</h4><ul class="space-y-1">`;
+                for (const [key, value] of Object.entries(section.data)) {
+                    sectionHtml += `<li class="grid grid-cols-1 md:grid-cols-3 gap-1 md:gap-4"><strong class="font-medium col-span-1">${key}</strong> <span class="text-gray-600 col-span-2 break-all">${value}</span></li>`;
+                }
+                return sectionHtml + '</ul></div>';
+            }).join('');
+            html += `<div class="mt-4">
+                        <div class="flex items-center mb-2">
+                            <h4 class="font-semibold text-gray-700">Analisis Risiko</h4>
+                            <div class="relative group ml-2">
+                                <svg class="w-5 h-5 text-gray-400 cursor-pointer" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd" /></svg>
+                                <div class="absolute bottom-full mb-2 w-72 p-3 bg-gray-800 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
+                                    <strong class="block">Batasan Risiko:</strong>
+                                    <p><strong class="text-red-400">Tinggi:</strong> Ditemukan data GPS, software editing, atau anomali PDF kritis.</p>
+                                    <p><strong class="text-yellow-400">Sedang:</strong> Dibuat dari Office, tidak ada tanggal asli, perbedaan waktu modifikasi, atau tidak ada EXIF sama sekali.</p>
+                                    <p><strong class="text-green-400">Rendah:</strong> Metadata minor tidak diisi.</p>
+                                    <p><strong class="text-blue-400">Info:</strong> Poin informatif yang tidak langsung menunjukkan risiko, seperti tidak adanya tag software.</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="whitespace-pre-wrap p-3 bg-gray-50 rounded-md text-gray-700 border-l-4 ${riskColors[riskLevel] || 'border-gray-500'}">${riskText}<hr class="my-2 border-gray-300"><p class="font-semibold">Kesimpulan Risiko Keseluruhan: ${riskLevel}</p></div>
+                    </div>`;
+            return html;
+        }
+
+        function generateTextReport(type, sections, riskText, riskLevel) {
+            let text = `Laporan Analisis untuk: ${sections[0].data["Nama File"]}\n========================================\n`;
+            sections.forEach(section => {
+                if (Object.keys(section.data).length === 0) return;
+                text += `\n--- ${section.title.toUpperCase()} ---\n`;
+                for (const [key, value] of Object.entries(section.data)) {
+                    text += `${key.padEnd(28)}: ${value}\n`;
+                }
+            });
+            text += `\n--- ANALISIS RISIKO ---\n${riskText}\nKesimpulan Risiko Keseluruhan: ${riskLevel}\n`;
+            return text;
+        }
+
+        function downloadReport() {
+            const blob = new Blob([fullReportContent.join('\n\n' + '—'.repeat(50) + '\n\n')], { type: 'text/plain;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `laporan_analisis_${new Date().toISOString().slice(0,10)}.txt`;
+            document.body.appendChild(a); a.click(); document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+        
+        // --- Helper Functions ---
+        function parsePdfDate(dateStr) {
+            if (!dateStr) return null;
+            try {
+                const ts = dateStr.replace('D:', '').substring(0, 14);
+                return new Date(`${ts.substring(0,4)}-${ts.substring(4,6)}-${ts.substring(6,8)}T${ts.substring(8,10)}:${ts.substring(10,12)}:${ts.substring(12,14)}`);
+            } catch { return null; }
+        }
+        function formatBytes(bytes, decimals = 2) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const dm = decimals < 0 ? 0 : decimals;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+        }
+    </script>
+</body>
+</html>
