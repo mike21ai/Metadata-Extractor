@@ -9,13 +9,12 @@
     <script src="https://cdn.tailwindcss.com"></script>
     
     <!-- Libraries for analysis -->
-    <!-- pdf.js for PDF analysis -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script>pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;</script>
-    <!-- exif-reader for Image analysis -->
     <script src="https://cdn.jsdelivr.net/npm/exif-reader@2.0.0/dist/exif-reader.min.js"></script>
-    <!-- jszip for handling .zip files -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <!-- Library for Drag & Drop Sorting -->
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
 
     <!-- Font -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -35,7 +34,7 @@
             border-color: #2563eb;
             background-color: #eff6ff;
         }
-        .report-card, .summary-card {
+        .report-card, .summary-card, .comparison-card, .faq-card {
             box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
         }
         .loader {
@@ -50,169 +49,377 @@
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
+
+        #scroll-to-top {
+            position: fixed; bottom: 20px; right: 20px;
+            background-color: rgba(37, 99, 235, 0.7); color: white; border: none;
+            border-radius: 50%; width: 50px; height: 50px;
+            display: none; justify-content: center; align-items: center;
+            cursor: pointer; z-index: 1000; transition: opacity 0.3s, visibility 0.3s;
+        }
+        #scroll-to-top:hover { background-color: rgba(29, 78, 216, 0.9); }
+        
+        /* Comparison table styles for freeze pane */
+        #comparison-result { max-height: 60vh; overflow: auto; }
+        .comparison-table td, .comparison-table th {
+            border: 1px solid #e5e7eb; padding: 0.75rem; text-align: left;
+            background-color: white; white-space: nowrap;
+        }
+        .comparison-table thead th { position: sticky; top: 0; z-index: 10; }
+        .comparison-table tbody td:first-child { position: sticky; left: 0; font-weight: 500; background-color: #f9fafb; }
+        .comparison-table thead th:first-child { left: 0; z-index: 20; }
+        .comparison-table .highlight-diff { background-color: #fef9c3; }
+        .risk-cell { font-weight: bold; }
+
+        /* Full page drop zone overlay */
+        #full-page-drop-zone {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background-color: rgba(209, 213, 219, 0.7);
+            z-index: 9999; display: none;
+            justify-content: center; align-items: center;
+            border: 4px dashed #2563eb;
+            color: #1e3a8a; text-align: center;
+            pointer-events: none; /* Important to allow clicks through */
+        }
+        .sortable-ghost { opacity: 0.4; background: #c7d2fe; }
+        .drag-handle { cursor: grab; }
+        
+        /* FAQ Accordion */
+        .faq-answer {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease-out;
+        }
+        .faq-question svg {
+            transition: transform 0.3s ease-out;
+        }
+
+        @media print {
+            body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            #header, #upload-container, #actions-area, #separator, #notification-area, #scroll-to-top, #comparison-section, #faq-section, footer { display: none !important; }
+            .report-card, .summary-card { box-shadow: none; border: 1px solid #e5e7eb; margin-top: 1.5rem; page-break-inside: avoid; }
+            .container { max-width: 100% !important; padding: 0 !important; }
+            .report-card-grid { grid-template-columns: 1fr !important; }
+            .preview-container { max-height: 400px; margin-bottom: 1rem; }
+        }
     </style>
 </head>
 <body class="bg-gray-50 text-gray-800 antialiased">
+    <!-- Full Page Drop Zone -->
+    <div id="full-page-drop-zone">
+        <div class="p-8 bg-white rounded-lg shadow-xl">
+            <h2 class="text-2xl font-bold">Lepas file untuk ditambahkan</h2>
+        </div>
+    </div>
+    
     <!-- Main Container -->
     <div class="container mx-auto p-4 md:p-8 max-w-5xl">
         <!-- Header -->
-        <header class="text-center mb-8">
+        <header id="header" class="text-center mb-8">
             <h1 class="text-3xl md:text-4xl font-bold text-gray-900">Metadata Extractor & Anomaly Detector</h1>
             <p class="text-md text-gray-600 mt-2">Unggah file PDF, JPG, PNG (tunggal atau dalam .ZIP) untuk analisis potensi fraud.</p>
         </header>
 
-        <!-- Summary Area -->
-        <div id="summary-area" class="hidden mb-8">
-            <!-- Summary will be injected here -->
+        <!-- UI Sections -->
+        <div id="notification-area" class="hidden mb-4 p-4 text-sm text-red-800 rounded-lg bg-red-50" role="alert"></div>
+        <div id="summary-area" class="hidden mb-4"></div>
+        <div id="actions-area" class="hidden text-center mb-8 space-y-2 md:space-y-0 md:space-x-4">
+            <button id="print-btn" class="px-6 py-2 bg-green-600 text-white font-semibold rounded-md hover:bg-green-700 transition w-full md:w-auto">Unduh Laporan</button>
+            <button id="add-file-btn" class="px-6 py-2 bg-blue-600 text-white font-semibold rounded-md hover:bg-blue-700 transition w-full md:w-auto">Tambah File</button>
+            <button id="compare-action-btn" class="px-6 py-2 bg-indigo-600 text-white font-semibold rounded-md hover:bg-indigo-700 transition w-full md:w-auto hidden">Bandingkan PDF</button>
+            <button id="reset-btn" class="px-6 py-2 bg-gray-600 text-white font-semibold rounded-md hover:bg-gray-700 transition w-full md:w-auto">Analisis Ulang</button>
         </div>
-
-        <!-- Separator -->
         <div id="separator" class="hidden my-8">
-            <div class="relative">
-                <div class="absolute inset-0 flex items-center" aria-hidden="true">
-                    <div class="w-full border-t border-gray-300"></div>
-                </div>
-                <div class="relative flex justify-center">
-                    <span class="bg-gray-50 px-3 text-lg font-medium text-gray-900">Detail Laporan</span>
-                </div>
-            </div>
+            <div class="relative"><div class="absolute inset-0 flex items-center"><div class="w-full border-t border-gray-300"></div></div><div class="relative flex justify-center"><span class="bg-gray-50 px-3 text-lg font-medium text-gray-900">Detail Laporan</span></div></div>
         </div>
-
-        <!-- Upload Area -->
         <div id="upload-container">
             <div id="drop-zone" class="relative flex flex-col items-center justify-center w-full p-10 bg-white rounded-lg drop-zone">
-                <svg class="w-12 h-12 text-gray-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 16.5V9.75m0 0l-3 3m3-3l3-3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z" />
-                </svg>
+                <svg class="w-12 h-12 text-gray-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 16.5V9.75m0 0l-3 3m3-3l3-3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z" /></svg>
                 <p class="mt-4 text-gray-600">Tarik & Lepas file di sini, atau</p>
-                <label for="file-input" class="mt-4 px-6 py-2 bg-blue-600 text-white font-semibold rounded-md cursor-pointer hover:bg-blue-700 transition">
-                    Pilih File
-                </label>
+                <label for="file-input" class="mt-4 px-6 py-2 bg-blue-600 text-white font-semibold rounded-md cursor-pointer hover:bg-blue-700 transition">Pilih File</label>
                 <input type="file" id="file-input" class="hidden" multiple>
             </div>
         </div>
+        <div id="loading-indicator" class="hidden flex flex-col items-center justify-center my-10"><div class="loader"></div><p class="mt-4 text-gray-600">Menganalisis file, mohon tunggu...</p></div>
+        <div id="results-area" class="space-y-6"></div>
 
-        <!-- Loading Indicator -->
-        <div id="loading-indicator" class="hidden flex flex-col items-center justify-center my-10">
-            <div class="loader"></div>
-            <p class="mt-4 text-gray-600">Menganalisis file, mohon tunggu...</p>
-        </div>
+        <!-- Comparison Section -->
+        <section id="comparison-section" class="hidden mt-12">
+            <div class="relative my-8"><div class="absolute inset-0 flex items-center"><div class="w-full border-t border-gray-300"></div></div><div class="relative flex justify-center"><span class="bg-gray-50 px-3 text-lg font-medium text-gray-900">Bandingkan Metadata PDF</span></div></div>
+            <div class="bg-white rounded-lg p-6 comparison-card">
+                <div id="comparison-selectors" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4"></div>
+                <div id="comparison-actions" class="flex items-center space-x-4 mb-6">
+                    <button id="run-compare-btn" class="px-6 py-2 bg-indigo-600 text-white font-semibold rounded-md hover:bg-indigo-700 transition">Jalankan Perbandingan</button>
+                    <button id="add-comparator-btn" class="px-4 py-2 bg-gray-200 text-gray-700 font-semibold rounded-md hover:bg-gray-300 transition">+ Tambah Pembanding</button>
+                    <button id="reset-comparison-btn" class="px-4 py-2 bg-gray-200 text-gray-700 font-semibold rounded-md hover:bg-gray-300 transition">Reset</button>
+                </div>
+                <div id="comparison-result" class="overflow-x-auto"></div>
+            </div>
+        </section>
+        
+        <!-- FAQ Section -->
+        <section id="faq-section" class="mt-12">
+             <div class="relative my-8"><div class="absolute inset-0 flex items-center"><div class="w-full border-t border-gray-300"></div></div><div class="relative flex justify-center"><span class="bg-gray-50 px-3 text-lg font-medium text-gray-900">Pertanyaan Umum (FAQ)</span></div></div>
+             <div class="bg-white rounded-lg p-6 space-y-4 faq-card">
+                <!-- FAQ Item 1 -->
+                <div class="faq-item">
+                    <button class="faq-question w-full flex justify-between items-center text-left font-semibold text-gray-800">
+                        <span>Bagaimana cara menggunakan alat ini?</span>
+                        <svg class="w-5 h-5 text-gray-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" /></svg>
+                    </button>
+                    <div class="faq-answer mt-2 text-gray-600 pl-2 border-l-2 border-gray-200">
+                        <p>Cukup tarik dan lepas file (atau folder ZIP) ke area yang ditentukan, atau klik tombol "Pilih File". Setelah analisis selesai, laporan akan muncul secara otomatis. Anda juga dapat menarik file baru kapan saja setelah analisis pertama untuk menambahkannya ke laporan.</p>
+                    </div>
+                </div>
+                <!-- FAQ Item 2 -->
+                <div class="faq-item">
+                    <button class="faq-question w-full flex justify-between items-center text-left font-semibold text-gray-800">
+                        <span>Format file apa saja yang didukung?</span>
+                        <svg class="w-5 h-5 text-gray-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" /></svg>
+                    </button>
+                    <div class="faq-answer mt-2 text-gray-600 pl-2 border-l-2 border-gray-200">
+                        <p>Alat ini mendukung file <strong>PDF (.pdf)</strong>, <strong>JPEG (.jpg, .jpeg)</strong>, dan <strong>PNG (.png)</strong>. Anda juga bisa mengunggah file <strong>.ZIP</strong> yang berisi kombinasi dari format-format tersebut.</p>
+                    </div>
+                </div>
+                <!-- FAQ Item 3 -->
+                <div class="faq-item">
+                    <button class="faq-question w-full flex justify-between items-center text-left font-semibold text-gray-800">
+                        <span>Mengapa file saya gagal dianalisis?</span>
+                        <svg class="w-5 h-5 text-gray-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" /></svg>
+                    </button>
+                    <div class="faq-answer mt-2 text-gray-600 pl-2 border-l-2 border-gray-200">
+                        <p>Kegagalan analisis biasanya disebabkan oleh beberapa hal: <strong>1)</strong> File rusak (corrupted). <strong>2)</strong> Format file tidak didukung (misalnya .docx atau .xlsx). <strong>3)</strong> File .ZIP dilindungi kata sandi atau berisi format yang tidak didukung. Coba unggah file satu per satu jika Anda mencurigai ada masalah dalam file .ZIP.</p>
+                    </div>
+                </div>
+                <!-- FAQ Item 4 -->
+                <div class="faq-item">
+                    <button class="faq-question w-full flex justify-between items-center text-left font-semibold text-gray-800">
+                        <span>Apa arti dari level risiko?</span>
+                        <svg class="w-5 h-5 text-gray-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" /></svg>
+                    </button>
+                    <div class="faq-answer mt-2 text-gray-600 pl-2 border-l-2 border-gray-200">
+                        <p>Level risiko adalah kesimpulan cepat berdasarkan anomali metadata:
+                            <ul class="list-disc list-inside mt-2 space-y-1">
+                                <li><strong>Tinggi:</strong> Ditemukan indikator kuat manipulasi, seperti data lokasi (GPS) pada dokumen yang seharusnya tidak ada.</li>
+                                <li><strong>Sedang:</strong> Ditemukan metadata yang mencurigakan, seperti file yang dibuat oleh software editing gambar (Photoshop) atau aplikasi office (Word, Excel) yang rentan dimodifikasi.</li>
+                                <li><strong>Rendah:</strong> Hanya ditemukan anomali minor, seperti metadata penulis yang kosong.</li>
+                            </ul>
+                        </p>
+                    </div>
+                </div>
+                <!-- FAQ Item 5 -->
+                <div class="faq-item">
+                    <button class="faq-question w-full flex justify-between items-center text-left font-semibold text-gray-800">
+                        <span>Apakah data saya aman dan disimpan di server?</span>
+                        <svg class="w-5 h-5 text-gray-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" /></svg>
+                    </button>
+                    <div class="faq-answer mt-2 text-gray-600 pl-2 border-l-2 border-gray-200">
+                        <p><strong>Data Anda 100% aman.</strong> Seluruh proses analisis, mulai dari membaca file hingga menampilkan laporan, dilakukan sepenuhnya di dalam browser Anda (sisi klien). Tidak ada file atau data yang diunggah atau disimpan di server mana pun.</p>
+                    </div>
+                </div>
+             </div>
+        </section>
 
-        <!-- Results Area -->
-        <div id="results-area" class="space-y-6">
-            <!-- Reports will be injected here by JavaScript -->
-        </div>
-
-        <!-- Actions Area -->
-        <div id="actions-area" class="hidden text-center mt-10 space-y-2 md:space-y-0 md:space-x-4">
-            <button id="download-btn" class="px-6 py-2 bg-green-600 text-white font-semibold rounded-md hover:bg-green-700 transition w-full md:w-auto">Unduh Laporan</button>
-            <button id="add-file-btn" class="px-6 py-2 bg-blue-600 text-white font-semibold rounded-md hover:bg-blue-700 transition w-full md:w-auto">Tambah File</button>
-            <button id="reset-btn" class="px-6 py-2 bg-gray-600 text-white font-semibold rounded-md hover:bg-gray-700 transition w-full md:w-auto">Analisis Ulang</button>
-        </div>
+        <footer class="text-center mt-12 text-sm text-gray-500">
+            <p>&copy; 2025 Hak Cipta Dilindungi.</p>
+        </footer>
     </div>
 
-    <!-- JavaScript Logic -->
+    <!-- Scroll to Top Button -->
+    <button id="scroll-to-top" title="Kembali ke atas"><svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 15l7-7 7 7" /></svg></button>
+
     <script>
+        // --- DOM Element References ---
         const dropZone = document.getElementById('drop-zone');
         const fileInput = document.getElementById('file-input');
         const uploadContainer = document.getElementById('upload-container');
         const loadingIndicator = document.getElementById('loading-indicator');
+        const notificationArea = document.getElementById('notification-area');
         const summaryArea = document.getElementById('summary-area');
         const separator = document.getElementById('separator');
         const resultsArea = document.getElementById('results-area');
         const actionsArea = document.getElementById('actions-area');
-        const downloadBtn = document.getElementById('download-btn');
+        const printBtn = document.getElementById('print-btn');
         const addFileBtn = document.getElementById('add-file-btn');
         const resetBtn = document.getElementById('reset-btn');
+        const scrollToTopBtn = document.getElementById('scroll-to-top');
+        const compareActionBtn = document.getElementById('compare-action-btn');
+        const comparisonSection = document.getElementById('comparison-section');
+        const comparisonSelectors = document.getElementById('comparison-selectors');
+        const runCompareBtn = document.getElementById('run-compare-btn');
+        const addComparatorBtn = document.getElementById('add-comparator-btn');
+        const resetComparisonBtn = document.getElementById('reset-comparison-btn');
+        const comparisonResult = document.getElementById('comparison-result');
+        const fullPageDropZone = document.getElementById('full-page-drop-zone');
+        const faqSection = document.getElementById('faq-section');
 
-        let fullReportContent = [];
-        let riskSummaryData = [];
+        // --- Global State ---
+        let allAnalyzedData = [];
+        let uploadedFiles = new Map();
+        const supportedExtensions = ['.pdf', '.jpg', '.jpeg', '.png'];
+        const riskOrder = { 'Tinggi': 1, 'Sedang': 2, 'Rendah': 3, 'Info': 4 };
+        let sortableInstance = null;
 
         // --- Event Listeners ---
         dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drop-zone--over'); });
         ['dragleave', 'dragend'].forEach(type => dropZone.addEventListener(type, e => dropZone.classList.remove('drop-zone--over')));
-        dropZone.addEventListener('drop', e => {
-            e.preventDefault();
-            dropZone.classList.remove('drop-zone--over');
-            if (e.dataTransfer.files.length) { handleFiles(e.dataTransfer.files, 'new'); }
-        });
+        dropZone.addEventListener('drop', e => { e.preventDefault(); dropZone.classList.remove('drop-zone--over'); if (e.dataTransfer.files.length) handleFiles(e.dataTransfer.files, 'new'); });
         fileInput.addEventListener('change', () => handleFiles(fileInput.files, 'new'));
-        addFileBtn.addEventListener('click', () => {
-            const tempInput = document.createElement('input');
-            tempInput.type = 'file';
-            tempInput.multiple = true;
-            tempInput.onchange = () => handleFiles(tempInput.files, 'add');
-            tempInput.click();
-        });
-        downloadBtn.addEventListener('click', downloadReport);
+        addFileBtn.addEventListener('click', () => { const tempInput = document.createElement('input'); tempInput.type = 'file'; tempInput.multiple = true; tempInput.onchange = () => handleFiles(tempInput.files, 'add'); tempInput.click(); });
+        printBtn.addEventListener('click', () => window.print());
         resetBtn.addEventListener('click', resetApp);
+        window.addEventListener('scroll', () => { scrollToTopBtn.style.display = window.pageYOffset > 300 ? 'flex' : 'none'; });
+        scrollToTopBtn.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
+        compareActionBtn.addEventListener('click', () => comparisonSection.scrollIntoView({ behavior: 'smooth' }));
+        runCompareBtn.addEventListener('click', runComparison);
+        addComparatorBtn.addEventListener('click', () => addComparator());
+        resetComparisonBtn.addEventListener('click', resetComparison);
 
+        // Global Drag and Drop for adding files
+        let dragCounter = 0;
+        window.addEventListener('dragenter', (e) => {
+            if (allAnalyzedData.length > 0 && e.dataTransfer.types.includes('Files')) {
+                dragCounter++;
+                fullPageDropZone.style.display = 'flex';
+            }
+        });
+        window.addEventListener('dragleave', (e) => {
+            if (allAnalyzedData.length > 0 && e.dataTransfer.types.includes('Files')) {
+                dragCounter--;
+                if (dragCounter === 0) {
+                    fullPageDropZone.style.display = 'none';
+                }
+            }
+        });
+        window.addEventListener('dragover', (e) => e.preventDefault());
+        window.addEventListener('drop', (e) => {
+            e.preventDefault();
+            if (allAnalyzedData.length > 0 && e.dataTransfer.types.includes('Files')) {
+                dragCounter = 0;
+                fullPageDropZone.style.display = 'none';
+                if (e.target.id !== 'drop-zone') {
+                    handleFiles(e.dataTransfer.files, 'add');
+                }
+            }
+        });
+
+        // FAQ Accordion Listener
+        faqSection.addEventListener('click', (e) => {
+            const question = e.target.closest('.faq-question');
+            if (question) {
+                const answer = question.nextElementSibling;
+                const icon = question.querySelector('svg');
+                if (answer.style.maxHeight) {
+                    answer.style.maxHeight = null;
+                    icon.style.transform = 'rotate(0deg)';
+                } else {
+                    answer.style.maxHeight = answer.scrollHeight + "px";
+                    icon.style.transform = 'rotate(180deg)';
+                }
+            }
+        });
+
+        // --- Core Application Flow ---
         function resetApp() {
             resultsArea.innerHTML = '';
             summaryArea.innerHTML = '';
             summaryArea.classList.add('hidden');
             separator.classList.add('hidden');
             actionsArea.classList.add('hidden');
+            notificationArea.classList.add('hidden');
             uploadContainer.classList.remove('hidden');
-            fullReportContent = [];
-            riskSummaryData = [];
+            comparisonSection.classList.add('hidden');
+            comparisonSelectors.innerHTML = '';
+            comparisonResult.innerHTML = '';
+            allAnalyzedData = [];
+            uploadedFiles.clear();
             fileInput.value = '';
         }
 
         async function handleFiles(files, mode) {
             if (files.length === 0) return;
-            
-            if (mode === 'new') {
-                resetApp();
+            if (mode === 'new') resetApp();
+
+            const validationResult = await validateFiles(Array.from(files));
+            if (!validationResult.isValid) {
+                showNotification(validationResult.message);
+                if (mode === 'add') return;
+                uploadContainer.classList.remove('hidden');
+                loadingIndicator.classList.add('hidden');
+                return;
             }
 
-            uploadContainer.classList.add('hidden');
-            loadingIndicator.classList.remove('hidden');
-            actionsArea.classList.add('hidden');
+            showLoading(true);
             
-            for (const file of Array.from(files)) {
-                if (file.name.toLowerCase().endsWith('.zip')) await handleZipFile(file);
-                else await handleSingleFile(file);
-            }
+            const analysisPromises = Array.from(files).filter(file => !uploadedFiles.has(file.name)).map(file => {
+                uploadedFiles.set(file.name, file);
+                return getAnalysisDataForFile(file);
+            });
+
+            const newAnalysisResults = (await Promise.all(analysisPromises)).flat().filter(Boolean);
+            allAnalyzedData.push(...newAnalysisResults);
             
-            loadingIndicator.classList.add('hidden');
-            if (fullReportContent.length > 0) {
-                displaySummary();
-                separator.classList.remove('hidden');
-                actionsArea.classList.remove('hidden');
-            } else if (mode === 'new') {
+            showLoading(false);
+            rerenderAllUI();
+        }
+
+        function deleteFile(filenameToDelete) {
+            allAnalyzedData = allAnalyzedData.filter(data => data.filename !== filenameToDelete);
+            uploadedFiles.delete(filenameToDelete);
+            comparisonResult.innerHTML = '';
+            rerenderAllUI();
+        }
+
+        function rerenderAllUI() {
+            if (allAnalyzedData.length === 0) {
                 resetApp();
+                return;
             }
+            allAnalyzedData.sort((a, b) => riskOrder[a.risk.level] - riskOrder[b.risk.level] || a.filename.localeCompare(b.filename));
+            
+            displaySummary();
+            displayAllReports();
+            setupComparisonTool();
+
+            actionsArea.classList.remove('hidden');
+            separator.classList.remove('hidden');
+            summaryArea.classList.remove('hidden');
+            const pdfs = allAnalyzedData.filter(d => d.metadata);
+            compareActionBtn.classList.toggle('hidden', pdfs.length < 2);
+        }
+
+        // --- Analysis Functions ---
+        async function getAnalysisDataForFile(file) {
+            if (file.name.toLowerCase().endsWith('.zip')) return handleZipFile(file);
+            return handleSingleFile(file);
         }
 
         async function handleZipFile(zipFile) {
             const zip = await JSZip.loadAsync(zipFile);
-            const supportedExtensions = ['.pdf', '.jpg', '.jpeg', '.png'];
+            const filePromises = [];
             for (const filename in zip.files) {
                 if (!zip.files[filename].dir && supportedExtensions.some(ext => filename.toLowerCase().endsWith(ext))) {
                     const fileData = await zip.files[filename].async('blob');
                     const file = new File([fileData], filename, { type: fileData.type });
-                    await handleSingleFile(file);
+                    if (!uploadedFiles.has(file.name)) {
+                        uploadedFiles.set(file.name, file);
+                        filePromises.push(handleSingleFile(file));
+                    }
                 }
             }
+            return Promise.all(filePromises);
         }
 
         async function handleSingleFile(file) {
             const fileExt = `.${file.name.split('.').pop().toLowerCase()}`;
-            let report = '';
             try {
-                if (fileExt === '.pdf') report = await analyzePdf(file);
-                else if (['.jpg', '.jpeg', '.png'].includes(fileExt)) report = await analyzeImage(file);
-                
-                if (report) {
-                    resultsArea.insertAdjacentHTML('beforeend', report.html);
-                    fullReportContent.push(report.text);
-                    riskSummaryData.push({ filename: file.name, ...report.risk });
-                }
+                if (fileExt === '.pdf') return analyzePdf(file);
+                if (['.jpg', '.jpeg', '.png'].includes(fileExt)) return analyzeImage(file);
             } catch (error) {
-                const errorHtml = createReportCard(file.name, `<p class="text-red-500">Gagal memproses file: ${error.message}</p>`);
-                resultsArea.insertAdjacentHTML('beforeend', errorHtml);
+                const errorContent = generateHtmlReport([], `Gagal memproses file: ${error.message}`, 'Tinggi');
+                return { filename: file.name, htmlContent: errorContent, risk: { level: 'Tinggi', reason: 'Gagal Proses' } };
             }
+            return null;
         }
 
         async function analyzePdf(file) {
@@ -226,55 +433,36 @@
                 "Nama File": file.name, "Ukuran File": formatBytes(file.size), "Judul": info.Title || 'N/A',
                 "Penulis (Author)": info.Author || 'N/A', "Aplikasi Pembuat (Creator)": info.Creator || 'N/A',
                 "Produser PDF (Producer)": info.Producer || 'N/A', "Versi PDF": info.PDFFormatVersion || 'N/A',
-                "Jumlah Halaman": pdf.numPages, "Tanggal Dibuat": createdDate ? createdDate.toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' }) : 'N/A',
-                "Tanggal Dimodifikasi": modifiedDate ? modifiedDate.toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' }) : 'N/A',
+                "Jumlah Halaman": pdf.numPages, "Tanggal Dibuat": createdDate ? createdDate.toLocaleString('id-ID') : 'N/A',
+                "Tanggal Dimodifikasi": modifiedDate ? modifiedDate.toLocaleString('id-ID') : 'N/A',
             };
             const riskResult = assessPdfRisk(metadata, createdDate, modifiedDate);
-            const reportText = generateTextReport("PDF", [ { title: "Info Dasar & Metadata", data: metadata } ], riskResult.text, riskResult.level);
-            const reportHtml = createReportCard(file.name, generateHtmlReport([ { title: "Info Dasar & Metadata", data: metadata } ], riskResult.text, riskResult.level));
-            return { html: reportHtml, text: reportText, risk: riskResult };
+            const htmlContent = generateHtmlReport([ { title: "Info Dasar & Metadata", data: metadata } ], riskResult.text, riskResult.level);
+            return { filename: file.name, htmlContent, risk: riskResult, metadata };
         }
 
         async function analyzeImage(file) {
             const arrayBuffer = await file.arrayBuffer();
-            const dimensions = await new Promise((resolve, reject) => {
-                const img = new Image();
-                const url = URL.createObjectURL(file);
-                img.onload = () => { resolve({ width: img.width, height: img.height }); URL.revokeObjectURL(url); };
-                img.onerror = () => { reject(new Error("Gagal memuat gambar.")); URL.revokeObjectURL(url); };
-                img.src = url;
-            });
-
-            const basicInfo = { "Nama File": file.name, "Ukuran File": formatBytes(file.size), "Dimensi": `${dimensions.width} x ${dimensions.height} piksel` };
-            let reportSections = [{ title: "Info Dasar", data: basicInfo }];
-            let riskResult;
-
+            const dimensions = await new Promise(r => { const i = new Image(); i.onload = () => r({w:i.width,h:i.height}); i.src = URL.createObjectURL(file); });
+            const basicInfo = { "Nama File": file.name, "Ukuran File": formatBytes(file.size), "Dimensi": `${dimensions.w} x ${dimensions.h} piksel` };
+            let reportSections = [{ title: "Info Dasar", data: basicInfo }], riskResult;
             try {
                 const exifData = ExifReader.load(arrayBuffer, { expanded: true });
                 const { image, exif, gps } = exifData;
-                
                 if (image && Object.keys(image).length > 0) reportSections.push({ title: "Info Gambar (IFD0)", data: formatExifSection(image) });
                 if (exif && Object.keys(exif).length > 0) reportSections.push({ title: "Info Kamera & EXIF (SubIFD)", data: formatExifSection(exif) });
                 if (gps && Object.keys(gps).length > 0) reportSections.push({ title: "Info Lokasi (GPS)", data: formatExifSection(gps) });
-                
                 riskResult = assessImageRisk(exifData);
             } catch (error) {
-                // This handles files with no EXIF structure at all
-                riskResult = { level: 'Sedang', reason: 'Tidak ada metadata EXIF.', text: `RISIKO SEDANG: File ${file.type.toUpperCase()} ini tidak mengandung segmen metadata EXIF. Data ini mungkin telah sengaja dihapus atau tidak didukung oleh format file ini.` };
+                riskResult = { level: 'Sedang', reason: 'Tidak ada metadata EXIF.', text: `🚩 RISIKO SEDANG: File ${file.type.toUpperCase()} ini tidak mengandung segmen metadata EXIF.` };
             }
-
-            const reportText = generateTextReport("Gambar", reportSections, riskResult.text, riskResult.level);
-            const reportHtml = createReportCard(file.name, generateHtmlReport(reportSections, riskResult.text, riskResult.level));
-            return { html: reportHtml, text: reportText, risk: riskResult };
+            const htmlContent = generateHtmlReport(reportSections, riskResult.text, riskResult.level);
+            return { filename: file.name, htmlContent, risk: riskResult };
         }
         
         function formatExifSection(section) {
             const formatted = {};
-            for (const key in section) {
-                if (section[key] && typeof section[key] === 'object' && section[key].description) {
-                    formatted[key] = section[key].description;
-                }
-            }
+            for (const key in section) { if (section[key]?.description) formatted[key] = section[key].description; }
             return formatted;
         }
 
@@ -283,142 +471,279 @@
             let risks = [];
             const creator = (metadata["Aplikasi Pembuat (Creator)"] || '').toLowerCase();
             const producer = (metadata["Produser PDF (Producer)"] || '').toLowerCase();
-            if (['photoshop', 'illustrator', 'gimp', 'canva'].some(sw => producer.includes(sw) || creator.includes(sw))) {
-                risks.push({level: 'Tinggi', reason: 'Dibuat oleh software editing gambar.'});
-            } else if (['word', 'excel', 'powerpoint'].some(sw => creator.includes(sw))) {
-                risks.push({level: 'Sedang', reason: 'Dibuat oleh aplikasi office.'});
-            }
-            if (createdDate && modifiedDate && Math.abs((modifiedDate - createdDate) / 1000) > 300) {
-                risks.push({level: 'Sedang', reason: 'Perbedaan waktu modifikasi signifikan.'});
-            }
+            if (['photoshop', 'illustrator', 'gimp', 'canva'].some(sw => producer.includes(sw) || creator.includes(sw))) risks.push({level: 'Sedang', reason: 'Dibuat oleh software editing gambar.'});
+            else if (['word', 'excel', 'powerpoint', 'microsoft'].some(sw => creator.includes(sw) || producer.includes(sw))) risks.push({level: 'Sedang', reason: 'Dibuat oleh aplikasi office/Microsoft.'});
+            if (createdDate && modifiedDate && Math.abs((modifiedDate - createdDate) / 1000) > 300) risks.push({level: 'Sedang', reason: 'Perbedaan waktu modifikasi signifikan.'});
             if (metadata["Penulis (Author)"] === 'N/A') risks.push({level: 'Rendah', reason: "Metadata 'Penulis' tidak diisi."});
-            
-            if (risks.length === 0) return { level: 'Rendah', reason: 'Tidak ada anomali terdeteksi.', text: '✅ Tidak ada indikator risiko signifikan yang terdeteksi.' };
-
-            const topRisk = risks.sort((a, b) => (['Tinggi', 'Sedang', 'Rendah'].indexOf(a.level) - ['Tinggi', 'Sedang', 'Rendah'].indexOf(b.level)))[0];
-            const fullText = risks.map(r => `🚩 RISIKO ${r.level.toUpperCase()}: ${r.reason}`).join('\n');
-            return { level: topRisk.level, reason: topRisk.reason, text: fullText };
+            if (risks.length === 0) return { level: 'Rendah', reason: 'Tidak ada anomali terdeteksi.', text: '✅ Tidak ada indikator risiko signifikan.' };
+            const topRisk = risks.sort((a, b) => riskOrder[a.level] - riskOrder[b.level])[0];
+            return { level: topRisk.level, reason: topRisk.reason, text: risks.map(r => `🚩 RISIKO ${r.level.toUpperCase()}: ${r.reason}`).join('\n') };
         }
 
         function assessImageRisk(exifData) {
             let risks = [];
-            if (exifData.gps && Object.keys(exifData.gps).length > 0) {
-                risks.push({level: 'Tinggi', reason: 'Data lokasi (GPS) ditemukan.'});
-            }
+            if (exifData.gps && Object.keys(exifData.gps).length > 0) risks.push({level: 'Tinggi', reason: 'Data lokasi (GPS) ditemukan.'});
             if (exifData.exif?.Software) {
-                risks.push({level: 'Tinggi', reason: `Dimodifikasi oleh '${exifData.exif.Software.description}'.`});
-            } else {
-                 risks.push({level: 'Info', reason: "Tidak ada tag 'Software' eksplisit."});
-            }
-            if (!exifData.exif?.DateTimeOriginal) {
-                risks.push({level: 'Sedang', reason: "Tidak ada data 'Tanggal Asli'."});
-            }
-            
-            if (risks.length === 0) return { level: 'Rendah', reason: 'Tidak ada anomali terdeteksi.', text: '✅ Tidak ada indikator risiko signifikan yang terdeteksi.' };
-
-            const topRisk = risks.sort((a, b) => (['Tinggi', 'Sedang', 'Rendah', 'Info'].indexOf(a.level) - ['Tinggi', 'Sedang', 'Rendah', 'Info'].indexOf(b.level)))[0];
-            const fullText = risks.map(r => `🚩 RISIKO ${r.level.toUpperCase()}: ${r.reason}`).join('\n');
-            return { level: topRisk.level, reason: topRisk.reason, text: fullText };
+                const software = exifData.exif.Software.description.toLowerCase();
+                risks.push({level: (software.includes('photoshop') || software.includes('illustrator')) ? 'Sedang' : 'Tinggi', reason: `Dimodifikasi oleh '${exifData.exif.Software.description}'.`});
+            } else { risks.push({level: 'Info', reason: "Tidak ada tag 'Software' eksplisit."}); }
+            if (!exifData.exif?.DateTimeOriginal) risks.push({level: 'Sedang', reason: "Tidak ada data 'Tanggal Asli'."});
+            if (risks.length === 0) return { level: 'Rendah', reason: 'Tidak ada anomali terdeteksi.', text: '✅ Tidak ada indikator risiko signifikan.' };
+            const topRisk = risks.sort((a, b) => riskOrder[a.level] - riskOrder[b.level])[0];
+            return { level: topRisk.level, reason: topRisk.reason, text: risks.map(r => `🚩 RISIKO ${r.level.toUpperCase()}: ${r.reason}`).join('\n') };
         }
 
-        // --- UI & Report Generation ---
+        // --- UI & Report Rendering ---
         function displaySummary() {
-            const riskOrder = { 'Tinggi': 1, 'Sedang': 2, 'Rendah': 3, 'Info': 4 };
             const riskColors = { 'Tinggi': 'bg-red-100 text-red-800', 'Sedang': 'bg-yellow-100 text-yellow-800', 'Rendah': 'bg-green-100 text-green-800', 'Info': 'bg-blue-100 text-blue-800' };
-
-            riskSummaryData.sort((a, b) => riskOrder[a.level] - riskOrder[b.level]);
-
             let summaryHtml = `<div class="bg-white rounded-lg p-6 summary-card">
                 <h3 class="text-xl font-bold text-gray-900 border-b pb-3 mb-4">Ringkasan Perhatian Auditor</h3>
-                <ul class="space-y-2">`;
-            
-            riskSummaryData.forEach(item => {
-                summaryHtml += `
-                    <li class="flex items-center justify-between p-2 rounded-md hover:bg-gray-50">
-                        <span class="font-medium text-gray-700 truncate pr-4" title="${item.filename}">${item.filename}</span>
-                        <div class="flex items-center flex-shrink-0">
-                            <span class="text-sm text-gray-500 mr-3 text-right">${item.reason}</span>
-                            <span class="text-xs font-semibold px-2 py-1 rounded-full ${riskColors[item.level]}">${item.level}</span>
-                        </div>
-                    </li>`;
+                <div class="grid grid-cols-12 gap-4 px-2 py-1 text-sm font-semibold text-gray-500">
+                    <div class="col-span-1 text-center">No.</div><div class="col-span-2">Risiko</div><div class="col-span-4">Nama File</div><div class="col-span-4">Keterangan</div><div class="col-span-1"></div>
+                </div><div class="max-h-[300px] overflow-y-auto pr-2"><ul class="space-y-1">`;
+            allAnalyzedData.forEach((item, index) => {
+                const sanitizedId = sanitizeForId(item.filename);
+                summaryHtml += `<li class="grid grid-cols-12 gap-4 items-center p-2 rounded-md hover:bg-gray-50">
+                    <div class="col-span-1 text-center font-medium">${index + 1}.</div>
+                    <div class="col-span-2"><span class="text-xs font-semibold px-2 py-1 rounded-full ${riskColors[item.risk.level]}">${item.risk.level}</span></div>
+                    <a href="#${sanitizedId}" class="font-medium text-blue-600 hover:underline truncate col-span-4" title="${item.filename}">${item.filename}</a>
+                    <span class="text-sm text-gray-600 col-span-4">${item.risk.reason}</span>
+                    <div class="col-span-1 text-center"><button onclick="deleteFile('${item.filename}')" title="Hapus file" class="text-gray-400 hover:text-red-600 transition">
+                        <svg class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm4 0a1 1 0 012 0v6a1 1 0 11-2 0V8z" clip-rule="evenodd" /></svg>
+                    </button></div></li>`;
             });
-
-            summaryHtml += '</ul></div>';
+            summaryHtml += '</ul></div></div>';
             summaryArea.innerHTML = summaryHtml;
-            summaryArea.classList.remove('hidden');
         }
 
-        function createReportCard(filename, content) {
-            return `<div class="bg-white rounded-lg p-6 report-card"><h3 class="text-lg font-semibold text-gray-900 border-b pb-3 mb-4 flex items-center"><svg class="w-6 h-6 mr-3 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg>${filename}</h3><div class="text-sm">${content}</div></div>`;
+        function displayAllReports() {
+            resultsArea.innerHTML = '';
+            allAnalyzedData.forEach((data, index) => {
+                const reportHtml = createReportCard(data.filename, data.htmlContent, index + 1);
+                resultsArea.insertAdjacentHTML('beforeend', reportHtml);
+                renderPreviewInCard(uploadedFiles.get(data.filename));
+            });
+        }
+
+        function createReportCard(filename, content, reportNumber) {
+            const sanitizedId = sanitizeForId(filename);
+            return `<div id="${sanitizedId}" class="bg-white rounded-lg p-6 report-card">
+                <div class="flex justify-between items-center border-b pb-3 mb-4">
+                    <h3 class="text-lg font-semibold text-gray-900 flex items-center">
+                        <span class="flex items-center justify-center bg-blue-600 text-white rounded-full h-8 w-8 text-sm font-bold mr-3">${reportNumber}</span>
+                        <svg class="w-6 h-6 mr-3 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg>
+                        ${filename}
+                    </h3>
+                    <button onclick="downloadOriginalFile('${filename}')" title="Unduh file asli" class="text-gray-400 hover:text-blue-600 transition">
+                        <svg class="w-6 h-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
+                    </button>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6 report-card-grid">
+                    <div class="md:col-span-1 bg-gray-100 rounded-md p-2 flex items-center justify-center min-h-[200px] preview-container" id="preview-container-${sanitizedId}"></div>
+                    <div class="md:col-span-2 text-sm">${content}</div>
+                </div>
+            </div>`;
         }
 
         function generateHtmlReport(sections, riskText, riskLevel) {
             const riskColors = { 'Tinggi': 'border-red-500', 'Sedang': 'border-yellow-500', 'Rendah': 'border-green-500', 'Info': 'border-blue-500' };
-            let html = sections.map(section => {
-                if (Object.keys(section.data).length === 0) return '';
-                let sectionHtml = `<div class="mb-4"><h4 class="font-semibold text-gray-700 mb-2">${section.title}</h4><ul class="space-y-1">`;
-                for (const [key, value] of Object.entries(section.data)) {
-                    sectionHtml += `<li class="grid grid-cols-1 md:grid-cols-3 gap-1 md:gap-4"><strong class="font-medium col-span-1">${key}</strong> <span class="text-gray-600 col-span-2 break-all">${value}</span></li>`;
-                }
-                return sectionHtml + '</ul></div>';
-            }).join('');
-            html += `<div class="mt-4">
-                        <div class="flex items-center mb-2">
-                            <h4 class="font-semibold text-gray-700">Analisis Risiko</h4>
-                            <div class="relative group ml-2">
-                                <svg class="w-5 h-5 text-gray-400 cursor-pointer" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd" /></svg>
-                                <div class="absolute bottom-full mb-2 w-72 p-3 bg-gray-800 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
-                                    <strong class="block">Batasan Risiko:</strong>
-                                    <p><strong class="text-red-400">Tinggi:</strong> Ditemukan data GPS, software editing, atau anomali PDF kritis.</p>
-                                    <p><strong class="text-yellow-400">Sedang:</strong> Dibuat dari Office, tidak ada tanggal asli, perbedaan waktu modifikasi, atau tidak ada EXIF sama sekali.</p>
-                                    <p><strong class="text-green-400">Rendah:</strong> Metadata minor tidak diisi.</p>
-                                    <p><strong class="text-blue-400">Info:</strong> Poin informatif yang tidak langsung menunjukkan risiko, seperti tidak adanya tag software.</p>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="whitespace-pre-wrap p-3 bg-gray-50 rounded-md text-gray-700 border-l-4 ${riskColors[riskLevel] || 'border-gray-500'}">${riskText}<hr class="my-2 border-gray-300"><p class="font-semibold">Kesimpulan Risiko Keseluruhan: ${riskLevel}</p></div>
-                    </div>`;
-            return html;
-        }
-
-        function generateTextReport(type, sections, riskText, riskLevel) {
-            let text = `Laporan Analisis untuk: ${sections[0].data["Nama File"]}\n========================================\n`;
+            let html = '';
             sections.forEach(section => {
                 if (Object.keys(section.data).length === 0) return;
-                text += `\n--- ${section.title.toUpperCase()} ---\n`;
+                html += `<div class="mb-4"><div class="flex items-center mb-2"><h4 class="font-semibold text-gray-700">${section.title}</h4></div><div class="pl-4 border-l-2 border-gray-200"><ul class="space-y-1">`;
                 for (const [key, value] of Object.entries(section.data)) {
-                    text += `${key.padEnd(28)}: ${value}\n`;
+                    html += `<li class="grid grid-cols-1 md:grid-cols-2 gap-1 md:gap-4"><strong class="font-medium col-span-1">${key}</strong> <span class="text-gray-600 col-span-1 break-all">${value}</span></li>`;
                 }
+                html += `</ul></div></div>`;
             });
-            text += `\n--- ANALISIS RISIKO ---\n${riskText}\nKesimpulan Risiko Keseluruhan: ${riskLevel}\n`;
-            return text;
-        }
-
-        function downloadReport() {
-            const blob = new Blob([fullReportContent.join('\n\n' + '—'.repeat(50) + '\n\n')], { type: 'text/plain;charset=utf-8' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `laporan_analisis_${new Date().toISOString().slice(0,10)}.txt`;
-            document.body.appendChild(a); a.click(); document.body.removeChild(a);
-            URL.revokeObjectURL(url);
+            html += `<div class="mt-4"><div class="flex items-center mb-2"><h4 class="font-semibold text-gray-700">Analisis Risiko</h4></div>
+                <div class="whitespace-pre-wrap p-3 bg-gray-50 rounded-md text-gray-700 border-l-4 ${riskColors[riskLevel] || 'border-gray-500'}">${riskText}<hr class="my-2 border-gray-300"><p class="font-semibold">Kesimpulan: ${riskLevel}</p></div>
+            </div>`;
+            return html;
         }
         
-        // --- Helper Functions ---
+        // --- Comparison Feature Functions ---
+        function setupComparisonTool() {
+            const pdfs = allAnalyzedData.filter(d => d.metadata);
+            if (pdfs.length >= 2) {
+                comparisonSection.classList.remove('hidden');
+                
+                if (!sortableInstance) {
+                    sortableInstance = new Sortable(comparisonSelectors, {
+                        animation: 150,
+                        ghostClass: 'sortable-ghost',
+                        handle: '.drag-handle', // Specify the drag handle
+                        onEnd: () => {
+                            if (comparisonResult.innerHTML) {
+                                runComparison(); // Re-run comparison on reorder if results exist
+                            }
+                        }
+                    });
+                }
+                
+                const currentSelections = Array.from(comparisonSelectors.children).map(div => div.querySelector('select').value);
+                const numToCreate = currentSelections.length > 0 ? currentSelections.length : Math.min(pdfs.length, 2);
+                
+                comparisonSelectors.innerHTML = '';
+                for (let i = 0; i < numToCreate; i++) {
+                    addComparator(currentSelections[i] || '');
+                }
+            } else {
+                comparisonSection.classList.add('hidden');
+            }
+        }
+
+        function addComparator(selectedValue = '') {
+            const wrapper = document.createElement('div');
+            wrapper.className = 'flex items-center space-x-2';
+            
+            const dragHandle = document.createElement('div');
+            dragHandle.className = 'drag-handle p-2 text-gray-400 hover:text-gray-600';
+            dragHandle.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M5 3a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2V5a2 2 0 00-2-2H5zM5 11a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2v-2a2 2 0 00-2-2H5zM11 5a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V5zM11 13a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>`;
+            wrapper.appendChild(dragHandle);
+
+            const select = document.createElement('select');
+            select.className = "w-full p-2 border border-gray-300 rounded-md bg-white";
+            select.innerHTML = `<option value="" selected>Pilih PDF untuk dibandingkan...</option>`;
+            
+            allAnalyzedData.filter(d => d.metadata).forEach(pdfData => {
+                const option = document.createElement('option');
+                option.value = pdfData.filename;
+                option.textContent = pdfData.filename;
+                if (pdfData.filename === selectedValue) option.selected = true;
+                select.appendChild(option);
+            });
+            wrapper.appendChild(select);
+
+            const removeBtn = document.createElement('button');
+            removeBtn.innerHTML = `<svg class="w-5 h-5 text-gray-400 hover:text-red-600" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" /></svg>`;
+            removeBtn.title = "Hapus pembanding ini";
+            removeBtn.onclick = () => {
+                wrapper.remove();
+                if (comparisonSelectors.children.length < 2) {
+                    comparisonResult.innerHTML = '';
+                }
+            };
+            wrapper.appendChild(removeBtn);
+
+            comparisonSelectors.appendChild(wrapper);
+        }
+        
+        function resetComparison() {
+            comparisonResult.innerHTML = '';
+            const pdfs = allAnalyzedData.filter(d => d.metadata);
+            const numToCreate = Math.min(pdfs.length, 2);
+            comparisonSelectors.innerHTML = '';
+            for (let i = 0; i < numToCreate; i++) {
+                addComparator();
+            }
+        }
+
+        function runComparison() {
+            const selectedFiles = Array.from(comparisonSelectors.children).map(div => div.querySelector('select').value).filter(Boolean);
+            if (selectedFiles.length < 2) {
+                comparisonResult.innerHTML = `<p class="text-red-600">Silakan pilih minimal 2 PDF untuk dibandingkan.</p>`;
+                return;
+            }
+            const uniqueSelectedFiles = [...new Set(selectedFiles)];
+            if (uniqueSelectedFiles.length !== selectedFiles.length) {
+                comparisonResult.innerHTML = `<p class="text-red-600">Harap pilih file yang berbeda di setiap kolom.</p>`;
+                return;
+            }
+
+            const pdfsToCompare = selectedFiles.map(filename => allAnalyzedData.find(data => data.filename === filename)).filter(Boolean);
+            const allKeys = new Set(pdfsToCompare.flatMap(p => Object.keys(p.metadata)));
+            
+            let tableHtml = `<table class="w-full text-sm comparison-table"><thead><tr><th class="font-semibold">Metadata</th>`;
+            pdfsToCompare.forEach(pdf => { tableHtml += `<th class="font-semibold truncate" title="${pdf.filename}">${pdf.filename}</th>`; });
+            tableHtml += `</tr></thead><tbody>`;
+            
+            // Add Risk Analysis Row
+            const riskValues = pdfsToCompare.map(pdf => pdf.risk.level);
+            const riskIsDifferent = new Set(riskValues).size > 1;
+            tableHtml += `<tr><td class="font-medium">Analisis Risiko</td>`;
+            riskValues.forEach(value => { tableHtml += `<td class="risk-cell ${riskIsDifferent ? 'highlight-diff' : ''}">${value}</td>`; });
+            tableHtml += `</tr>`;
+
+            const keyOrder = ["Ukuran File", "Judul", "Penulis (Author)", "Aplikasi Pembuat (Creator)", "Produser PDF (Producer)", "Versi PDF", "Jumlah Halaman", "Tanggal Dibuat", "Tanggal Dimodifikasi"];
+            const sortedKeys = [...allKeys].filter(k => k !== "Nama File").sort((a, b) => {
+                const indexA = keyOrder.indexOf(a);
+                const indexB = keyOrder.indexOf(b);
+                if (indexA !== -1 && indexB !== -1) return indexA - indexB;
+                if (indexA !== -1) return -1;
+                if (indexB !== -1) return 1;
+                return a.localeCompare(b);
+            });
+
+            sortedKeys.forEach(key => {
+                const values = pdfsToCompare.map(pdf => pdf.metadata[key] || 'N/A');
+                const isDifferent = new Set(values).size > 1;
+                tableHtml += `<tr><td class="font-medium">${key}</td>`;
+                values.forEach(value => { tableHtml += `<td class="${isDifferent ? 'highlight-diff' : ''}">${value}</td>`; });
+                tableHtml += `</tr>`;
+            });
+
+            tableHtml += `</tbody></table>`;
+            comparisonResult.innerHTML = tableHtml;
+        }
+
+        // --- Helper & Utility Functions ---
+        async function validateFiles(files) {
+            for (const file of files) {
+                const fileExt = `.${file.name.split('.').pop().toLowerCase()}`;
+                if (fileExt === '.zip') {
+                    try {
+                        const zip = await JSZip.loadAsync(file);
+                        for (const filename in zip.files) { if (!zip.files[filename].dir && !supportedExtensions.includes(`.${filename.split('.').pop().toLowerCase()}`)) return { isValid: false, message: `File tidak valid di dalam ZIP: '${filename}'.` }; }
+                    } catch (e) { return { isValid: false, message: `Gagal membaca file ZIP '${file.name}'.` }; }
+                } else if (!supportedExtensions.includes(fileExt)) { return { isValid: false, message: `Format file tidak didukung: '${file.name}'.` }; }
+            }
+            return { isValid: true };
+        }
+
+        function showNotification(message) { notificationArea.textContent = message; notificationArea.classList.remove('hidden'); }
+        function showLoading(isLoading) {
+            loadingIndicator.classList.toggle('hidden', !isLoading);
+            if (isLoading) {
+                uploadContainer.classList.add('hidden');
+                actionsArea.classList.add('hidden');
+            }
+        }
+        function sanitizeForId(text) { return `file-report-${text.replace(/[^a-zA-Z0-9]/g, '_')}`; }
+        function downloadOriginalFile(filename) {
+            const file = uploadedFiles.get(filename);
+            if (file) { const url = URL.createObjectURL(file); const a = document.createElement('a'); a.href = url; a.download = file.name; a.click(); URL.revokeObjectURL(url); }
+        }
+        async function renderPreviewInCard(file) {
+            if (!file) return;
+            const sanitizedId = sanitizeForId(file.name);
+            const container = document.getElementById(`preview-container-${sanitizedId}`);
+            if (!container) return;
+            container.innerHTML = '<div class="loader"></div>';
+            if (file.type.startsWith('image/')) {
+                const url = URL.createObjectURL(file);
+                container.innerHTML = `<img src="${url}" alt="Preview" class="max-h-full max-w-full object-contain">`;
+            } else if (file.type === 'application/pdf') {
+                try {
+                    const arrayBuffer = await file.arrayBuffer();
+                    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+                    const page = await pdf.getPage(1);
+                    const viewport = page.getViewport({ scale: 0.5 });
+                    const canvas = document.createElement('canvas');
+                    canvas.height = viewport.height; canvas.width = viewport.width;
+                    await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+                    container.innerHTML = '';
+                    container.appendChild(canvas);
+                } catch (e) { container.innerHTML = '<p class="text-xs text-red-500 p-2">Gagal memuat pratinjau PDF.</p>'; }
+            }
+        }
         function parsePdfDate(dateStr) {
             if (!dateStr) return null;
-            try {
-                const ts = dateStr.replace('D:', '').substring(0, 14);
-                return new Date(`${ts.substring(0,4)}-${ts.substring(4,6)}-${ts.substring(6,8)}T${ts.substring(8,10)}:${ts.substring(10,12)}:${ts.substring(12,14)}`);
-            } catch { return null; }
+            try { const ts = dateStr.replace('D:', '').substring(0, 14); return new Date(`${ts.substring(0,4)}-${ts.substring(4,6)}-${ts.substring(6,8)}T${ts.substring(8,10)}:${ts.substring(10,12)}:${ts.substring(12,14)}`); } catch { return null; }
         }
-        function formatBytes(bytes, decimals = 2) {
-            if (bytes === 0) return '0 Bytes';
-            const k = 1024;
-            const dm = decimals < 0 ? 0 : decimals;
-            const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
-            const i = Math.floor(Math.log(bytes) / Math.log(k));
-            return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+        function formatBytes(bytes, d = 2) {
+            if (bytes === 0) return '0 Bytes'; const k = 1024; const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return `${parseFloat((bytes / Math.pow(k, i)).toFixed(d < 0 ? 0 : d))} ${['Bytes', 'KB', 'MB', 'GB', 'TB'][i]}`;
         }
     </script>
 </body>
