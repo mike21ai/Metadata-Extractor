@@ -153,7 +153,7 @@
         <div id="upload-container">
             <div id="drop-zone" class="relative flex flex-col items-center justify-center w-full p-10 bg-white rounded-lg drop-zone">
                 <svg class="w-12 h-12 text-gray-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 16.5V9.75m0 0l-3 3m3-3l3-3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z" /></svg>
-                <p class="mt-4 text-gray-600">Tarik & Lepas file di sini, atau</p>
+                <p class="mt-4 text-gray-600">Tarik & Lepas file, tempel (Ctrl+V), atau</p>
                 <label for="file-input" class="mt-4 px-6 py-2 bg-blue-600 text-white font-semibold rounded-md cursor-pointer hover:bg-blue-700 transition">Pilih File</label>
                 <input type="file" id="file-input" class="hidden" multiple>
             </div>
@@ -290,7 +290,7 @@
         dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drop-zone--over'); });
         ['dragleave', 'dragend'].forEach(type => dropZone.addEventListener(type, e => dropZone.classList.remove('drop-zone--over')));
         dropZone.addEventListener('drop', e => { e.preventDefault(); dropZone.classList.remove('drop-zone--over'); if (e.dataTransfer.files.length) handleFiles(e.dataTransfer.files, 'new'); });
-        fileInput.addEventListener('change', () => handleFiles(fileInput.files, 'new'));
+        fileInput.addEventListener('change', (e) => handleFiles(Array.from(e.target.files), 'new'));
         addFileBtn.addEventListener('click', () => { const tempInput = document.createElement('input'); tempInput.type = 'file'; tempInput.multiple = true; tempInput.onchange = () => handleFiles(tempInput.files, 'add'); tempInput.click(); });
         printBtn.addEventListener('click', () => window.print());
         resetBtn.addEventListener('click', resetApp);
@@ -342,6 +342,27 @@
                 fullPageDropZone.style.display = 'none';
                 if (e.target.id !== 'drop-zone') {
                     handleFiles(e.dataTransfer.files, 'add');
+                }
+            }
+        });
+        
+        // Paste from clipboard listener
+        window.addEventListener('paste', e => {
+            if (e.clipboardData && e.clipboardData.items) {
+                const files = [];
+                for (let i = 0; i < e.clipboardData.items.length; i++) {
+                    const item = e.clipboardData.items[i];
+                    if (item.kind === 'file') {
+                        const file = item.getAsFile();
+                        if (file) {
+                            files.push(file);
+                        }
+                    }
+                }
+                if (files.length > 0) {
+                    e.preventDefault();
+                    const mode = allAnalyzedData.length > 0 ? 'add' : 'new';
+                    handleFiles(files, mode);
                 }
             }
         });
