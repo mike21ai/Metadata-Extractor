@@ -15,6 +15,8 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <!-- Library for Drag & Drop Sorting -->
     <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
+    <!-- Library for XLSX Export -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 
     <!-- Font -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -124,7 +126,8 @@
         <div id="notification-area" class="hidden mb-4 p-4 text-sm text-red-800 rounded-lg bg-red-50" role="alert"></div>
         <div id="summary-area" class="hidden mb-4"></div>
         <div id="actions-area" class="hidden text-center mb-8 space-y-2 md:space-y-0 md:space-x-4">
-            <button id="print-btn" class="px-6 py-2 bg-green-600 text-white font-semibold rounded-md hover:bg-green-700 transition w-full md:w-auto">Unduh Laporan</button>
+            <button id="print-btn" class="px-6 py-2 bg-green-600 text-white font-semibold rounded-md hover:bg-green-700 transition w-full md:w-auto">Unduh Laporan (PDF)</button>
+            <button id="download-xlsx-btn" class="px-6 py-2 bg-teal-600 text-white font-semibold rounded-md hover:bg-teal-700 transition w-full md:w-auto">Unduh Metadata (XLSX)</button>
             <button id="add-file-btn" class="px-6 py-2 bg-blue-600 text-white font-semibold rounded-md hover:bg-blue-700 transition w-full md:w-auto">Tambah File</button>
             <button id="compare-action-btn" class="px-6 py-2 bg-indigo-600 text-white font-semibold rounded-md hover:bg-indigo-700 transition w-full md:w-auto hidden">Bandingkan PDF</button>
             <button id="reset-btn" class="px-6 py-2 bg-gray-600 text-white font-semibold rounded-md hover:bg-gray-700 transition w-full md:w-auto">Analisis Ulang</button>
@@ -148,10 +151,12 @@
             <div class="relative my-8"><div class="absolute inset-0 flex items-center"><div class="w-full border-t border-gray-300"></div></div><div class="relative flex justify-center"><span class="bg-gray-50 px-3 text-lg font-medium text-gray-900">Bandingkan Metadata PDF</span></div></div>
             <div class="bg-white rounded-lg p-6 comparison-card">
                 <div id="comparison-selectors" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4"></div>
-                <div id="comparison-actions" class="flex items-center space-x-4 mb-6">
+                <div id="comparison-actions" class="flex flex-wrap items-center gap-4 mb-6">
                     <button id="run-compare-btn" class="px-6 py-2 bg-indigo-600 text-white font-semibold rounded-md hover:bg-indigo-700 transition">Jalankan Perbandingan</button>
+                    <button id="compare-all-btn" class="px-6 py-2 bg-purple-600 text-white font-semibold rounded-md hover:bg-purple-700 transition">Bandingkan Semua</button>
                     <button id="add-comparator-btn" class="px-4 py-2 bg-gray-200 text-gray-700 font-semibold rounded-md hover:bg-gray-300 transition">+ Tambah Pembanding</button>
                     <button id="reset-comparison-btn" class="px-4 py-2 bg-gray-200 text-gray-700 font-semibold rounded-md hover:bg-gray-300 transition">Reset</button>
+                    <button id="download-comparison-xlsx-btn" class="px-6 py-2 bg-teal-600 text-white font-semibold rounded-md hover:bg-teal-700 transition hidden">Unduh Perbandingan (XLSX)</button>
                 </div>
                 <div id="comparison-result" class="overflow-x-auto"></div>
             </div>
@@ -198,13 +203,12 @@
                         <svg class="w-5 h-5 text-gray-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" /></svg>
                     </button>
                     <div class="faq-answer mt-2 text-gray-600 pl-2 border-l-2 border-gray-200">
-                        <p>Level risiko adalah kesimpulan cepat berdasarkan anomali metadata:
-                            <ul class="list-disc list-inside mt-2 space-y-1">
-                                <li><strong>Tinggi:</strong> Ditemukan indikator kuat manipulasi, seperti data lokasi (GPS) pada dokumen yang seharusnya tidak ada.</li>
-                                <li><strong>Sedang:</strong> Ditemukan metadata yang mencurigakan, seperti file yang dibuat oleh software editing gambar (Photoshop) atau aplikasi office (Word, Excel) yang rentan dimodifikasi.</li>
-                                <li><strong>Rendah:</strong> Hanya ditemukan anomali minor, seperti metadata penulis yang kosong.</li>
-                            </ul>
-                        </p>
+                        <p>Level risiko adalah kesimpulan cepat berdasarkan anomali metadata:</p>
+                        <ul class="list-disc list-inside mt-2 space-y-1">
+                            <li><strong>Tinggi:</strong> Ditemukan indikator kuat manipulasi, seperti adanya data lokasi (GPS) pada file gambar atau jejak modifikasi oleh software yang tidak umum.</li>
+                            <li><strong>Sedang:</strong> Ditemukan anomali yang perlu perhatian. Contohnya: file dibuat oleh software editing (misal: Photoshop) atau aplikasi office (misal: Word), ada perbedaan signifikan (> 5 menit) antara tanggal dibuat dan dimodifikasi, atau tidak ditemukannya tanggal asli pada file gambar.</li>
+                            <li><strong>Rendah:</strong> Tidak ada anomali signifikan yang terdeteksi, atau hanya ditemukan anomali minor seperti metadata 'Penulis' yang tidak diisi.</li>
+                        </ul>
                     </div>
                 </div>
                 <!-- FAQ Item 5 -->
@@ -221,7 +225,7 @@
         </section>
 
         <footer class="text-center mt-12 text-sm text-gray-500">
-            <p>&copy; 2025 Hak Cipta Dilindungi.</p>
+            <p>&copy; 2025 mike21ai | Hak Cipta Dilindungi.</p>
         </footer>
     </div>
 
@@ -252,6 +256,10 @@
         const comparisonResult = document.getElementById('comparison-result');
         const fullPageDropZone = document.getElementById('full-page-drop-zone');
         const faqSection = document.getElementById('faq-section');
+        // New Buttons
+        const downloadXlsxBtn = document.getElementById('download-xlsx-btn');
+        const compareAllBtn = document.getElementById('compare-all-btn');
+        const downloadComparisonXlsxBtn = document.getElementById('download-comparison-xlsx-btn');
 
         // --- Global State ---
         let allAnalyzedData = [];
@@ -274,6 +282,10 @@
         runCompareBtn.addEventListener('click', runComparison);
         addComparatorBtn.addEventListener('click', () => addComparator());
         resetComparisonBtn.addEventListener('click', resetComparison);
+        // New Listeners
+        downloadXlsxBtn.addEventListener('click', downloadMetadataAsXLSX);
+        compareAllBtn.addEventListener('click', compareAllFiles);
+        downloadComparisonXlsxBtn.addEventListener('click', downloadComparisonAsXLSX);
 
         // Global Drag and Drop for adding files
         let dragCounter = 0;
@@ -340,20 +352,73 @@
             if (files.length === 0) return;
             if (mode === 'new') resetApp();
 
-            const validationResult = await validateFiles(Array.from(files));
-            if (!validationResult.isValid) {
-                showNotification(validationResult.message);
-                if (mode === 'add') return;
-                uploadContainer.classList.remove('hidden');
-                loadingIndicator.classList.add('hidden');
-                return;
+            showLoading(true);
+
+            const filesToProcess = [];
+            const rejectedFilenames = [];
+
+            // Step 1: Flatten all inputs, including ZIP files
+            const allIndividualFiles = [];
+            const rawFiles = Array.from(files);
+            for (const file of rawFiles) {
+                if (file.name.toLowerCase().endsWith('.zip')) {
+                    try {
+                        const zip = await JSZip.loadAsync(file);
+                        // Using a for...of loop with zip.files.values() to handle async correctly
+                        for (const zipEntry of Object.values(zip.files)) {
+                            if (!zipEntry.dir) {
+                                const fileData = await zipEntry.async('blob');
+                                const extractedFile = new File([fileData], zipEntry.name, { type: fileData.type });
+                                allIndividualFiles.push(extractedFile);
+                            }
+                        }
+                    } catch (e) {
+                        rejectedFilenames.push(`${file.name} (Gagal memproses ZIP)`);
+                    }
+                } else {
+                    allIndividualFiles.push(file);
+                }
             }
 
-            showLoading(true);
+            // Step 2: Partition files into supported and rejected
+            for (const file of allIndividualFiles) {
+                const fileExt = `.${file.name.split('.').pop().toLowerCase()}`;
+                // Check if supported AND not a duplicate
+                if (supportedExtensions.includes(fileExt)) {
+                    if (!uploadedFiles.has(file.name)) {
+                        filesToProcess.push(file);
+                    }
+                    // Silently ignore duplicates that are supported
+                } else {
+                    rejectedFilenames.push(file.name);
+                }
+            }
             
-            const analysisPromises = Array.from(files).filter(file => !uploadedFiles.has(file.name)).map(file => {
+            // Step 3: Show notifications for rejected files, or hide if none
+            if (rejectedFilenames.length > 0) {
+                notificationArea.style.whiteSpace = 'pre-wrap';
+                const message = `Beberapa file ditolak karena format tidak didukung atau duplikat:\n- ${rejectedFilenames.join('\n- ')}`;
+                showNotification(message);
+            } else if (!notificationArea.classList.contains('hidden') && notificationArea.textContent.startsWith('Beberapa file ditolak')) {
+                // Hides the notification if a subsequent upload has no rejected files
+                notificationArea.classList.add('hidden');
+                notificationArea.style.whiteSpace = 'normal';
+            }
+
+            // Step 4: Check if there's anything to process
+            if (filesToProcess.length === 0) {
+                showLoading(false);
+                // If it was a new upload with no valid files, ensure the upload container is visible.
+                if (mode === 'new' && allAnalyzedData.length === 0) {
+                    uploadContainer.classList.remove('hidden');
+                }
+                return;
+            }
+            
+            // Step 5: Process the valid files
+            const analysisPromises = filesToProcess.map(file => {
                 uploadedFiles.set(file.name, file);
-                return getAnalysisDataForFile(file);
+                return handleSingleFile(file); // This function analyzes a single pdf/image
             });
 
             const newAnalysisResults = (await Promise.all(analysisPromises)).flat().filter(Boolean);
@@ -389,27 +454,6 @@
         }
 
         // --- Analysis Functions ---
-        async function getAnalysisDataForFile(file) {
-            if (file.name.toLowerCase().endsWith('.zip')) return handleZipFile(file);
-            return handleSingleFile(file);
-        }
-
-        async function handleZipFile(zipFile) {
-            const zip = await JSZip.loadAsync(zipFile);
-            const filePromises = [];
-            for (const filename in zip.files) {
-                if (!zip.files[filename].dir && supportedExtensions.some(ext => filename.toLowerCase().endsWith(ext))) {
-                    const fileData = await zip.files[filename].async('blob');
-                    const file = new File([fileData], filename, { type: fileData.type });
-                    if (!uploadedFiles.has(file.name)) {
-                        uploadedFiles.set(file.name, file);
-                        filePromises.push(handleSingleFile(file));
-                    }
-                }
-            }
-            return Promise.all(filePromises);
-        }
-
         async function handleSingleFile(file) {
             const fileExt = `.${file.name.split('.').pop().toLowerCase()}`;
             try {
@@ -438,7 +482,7 @@
             };
             const riskResult = assessPdfRisk(metadata, createdDate, modifiedDate);
             const htmlContent = generateHtmlReport([ { title: "Info Dasar & Metadata", data: metadata } ], riskResult.text, riskResult.level);
-            return { filename: file.name, htmlContent, risk: riskResult, metadata };
+            return { filename: file.name, htmlContent, risk: riskResult, metadata, file_info: {size: file.size} };
         }
 
         async function analyzeImage(file) {
@@ -457,7 +501,7 @@
                 riskResult = { level: 'Sedang', reason: 'Tidak ada metadata EXIF.', text: `🚩 RISIKO SEDANG: File ${file.type.toUpperCase()} ini tidak mengandung segmen metadata EXIF.` };
             }
             const htmlContent = generateHtmlReport(reportSections, riskResult.text, riskResult.level);
-            return { filename: file.name, htmlContent, risk: riskResult };
+            return { filename: file.name, htmlContent, risk: riskResult, file_info: {size: file.size} };
         }
         
         function formatExifSection(section) {
@@ -622,6 +666,7 @@
                 wrapper.remove();
                 if (comparisonSelectors.children.length < 2) {
                     comparisonResult.innerHTML = '';
+                    downloadComparisonXlsxBtn.classList.add('hidden');
                 }
             };
             wrapper.appendChild(removeBtn);
@@ -631,6 +676,7 @@
         
         function resetComparison() {
             comparisonResult.innerHTML = '';
+            downloadComparisonXlsxBtn.classList.add('hidden');
             const pdfs = allAnalyzedData.filter(d => d.metadata);
             const numToCreate = Math.min(pdfs.length, 2);
             comparisonSelectors.innerHTML = '';
@@ -640,6 +686,7 @@
         }
 
         function runComparison() {
+            downloadComparisonXlsxBtn.classList.add('hidden');
             const selectedFiles = Array.from(comparisonSelectors.children).map(div => div.querySelector('select').value).filter(Boolean);
             if (selectedFiles.length < 2) {
                 comparisonResult.innerHTML = `<p class="text-red-600">Silakan pilih minimal 2 PDF untuk dibandingkan.</p>`;
@@ -685,22 +732,69 @@
 
             tableHtml += `</tbody></table>`;
             comparisonResult.innerHTML = tableHtml;
+            downloadComparisonXlsxBtn.classList.remove('hidden');
+        }
+
+        function compareAllFiles() {
+            const pdfs = allAnalyzedData.filter(d => d.metadata);
+            if (pdfs.length < 2) {
+                showNotification("Perlu minimal 2 file PDF untuk membandingkan semua.");
+                return;
+            }
+            comparisonSelectors.innerHTML = '';
+            pdfs.forEach(pdf => addComparator(pdf.filename));
+            runComparison();
+        }
+        
+        // --- XLSX Download Functions ---
+        function downloadMetadataAsXLSX() {
+            const headers = ['No.', 'Nama File', 'Ukuran File', 'Judul', 'Penulis (Author)', 'Aplikasi Pembuat (Creator)', 'Produser PDF (Producer)', 'Versi PDF', 'Jumlah Halaman', 'Tanggal Dibuat', 'Tanggal Dimodifikasi', 'Tingkat Risiko', 'Keterangan Risiko'];
+            const data = allAnalyzedData.map((item, index) => {
+                if (item.metadata) { // PDF file
+                    return [
+                        index + 1,
+                        item.metadata['Nama File'],
+                        item.metadata['Ukuran File'],
+                        item.metadata['Judul'],
+                        item.metadata['Penulis (Author)'],
+                        item.metadata['Aplikasi Pembuat (Creator)'],
+                        item.metadata['Produser PDF (Producer)'],
+                        item.metadata['Versi PDF'],
+                        item.metadata['Jumlah Halaman'],
+                        item.metadata['Tanggal Dibuat'],
+                        item.metadata['Tanggal Dimodifikasi'],
+                        item.risk.level,
+                        item.risk.reason
+                    ];
+                } else { // Image file
+                    return [
+                        index + 1,
+                        item.filename,
+                        formatBytes(item.file_info.size),
+                        'N/A', 'N/A', 'N/A', 'N/A', 'N/A', 'N/A', 'N/A', 'N/A',
+                        item.risk.level,
+                        item.risk.reason
+                    ];
+                }
+            });
+
+            const worksheet = XLSX.utils.aoa_to_sheet([headers, ...data]);
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, 'Metadata');
+            XLSX.writeFile(workbook, 'Laporan_Metadata.xlsx');
+        }
+
+        function downloadComparisonAsXLSX() {
+            const table = comparisonResult.querySelector('table');
+            if (!table) {
+                showNotification("Tidak ada tabel perbandingan untuk diunduh.");
+                return;
+            }
+            const workbook = XLSX.utils.table_to_book(table, {sheet: "Perbandingan"});
+            XLSX.writeFile(workbook, "Laporan_Perbandingan_PDF.xlsx");
         }
 
         // --- Helper & Utility Functions ---
-        async function validateFiles(files) {
-            for (const file of files) {
-                const fileExt = `.${file.name.split('.').pop().toLowerCase()}`;
-                if (fileExt === '.zip') {
-                    try {
-                        const zip = await JSZip.loadAsync(file);
-                        for (const filename in zip.files) { if (!zip.files[filename].dir && !supportedExtensions.includes(`.${filename.split('.').pop().toLowerCase()}`)) return { isValid: false, message: `File tidak valid di dalam ZIP: '${filename}'.` }; }
-                    } catch (e) { return { isValid: false, message: `Gagal membaca file ZIP '${file.name}'.` }; }
-                } else if (!supportedExtensions.includes(fileExt)) { return { isValid: false, message: `Format file tidak didukung: '${file.name}'.` }; }
-            }
-            return { isValid: true };
-        }
-
         function showNotification(message) { notificationArea.textContent = message; notificationArea.classList.remove('hidden'); }
         function showLoading(isLoading) {
             loadingIndicator.classList.toggle('hidden', !isLoading);
@@ -728,10 +822,22 @@
                     const arrayBuffer = await file.arrayBuffer();
                     const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
                     const page = await pdf.getPage(1);
-                    const viewport = page.getViewport({ scale: 0.5 });
+                    
+                    // Calculate the scale to fit the container width
+                    const containerWidth = container.clientWidth;
+                    const viewportDefault = page.getViewport({ scale: 1 });
+                    const scale = containerWidth / viewportDefault.width;
+                    const viewport = page.getViewport({ scale: scale });
+
                     const canvas = document.createElement('canvas');
-                    canvas.height = viewport.height; canvas.width = viewport.width;
-                    await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+                    const context = canvas.getContext('2d');
+                    canvas.height = viewport.height;
+                    canvas.width = viewport.width;
+
+                    // Add styling to ensure it scales correctly within the container
+                    canvas.classList.add('max-w-full', 'h-auto');
+
+                    await page.render({ canvasContext: context, viewport: viewport }).promise;
                     container.innerHTML = '';
                     container.appendChild(canvas);
                 } catch (e) { container.innerHTML = '<p class="text-xs text-red-500 p-2">Gagal memuat pratinjau PDF.</p>'; }
@@ -748,3 +854,4 @@
     </script>
 </body>
 </html>
+
